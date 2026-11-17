@@ -264,6 +264,17 @@ local function CreateTargetButton(name, parent)
 
 	b:SetScript("OnEnter", ShowNamesTooltip)
 	b:SetScript("OnLeave", GameTooltip_Hide)
+	-- PostClick runs after the macro, so the target is already updated here.
+	b:SetScript("PostClick", function(self, button)
+		if button == "RightButton" then
+			if self.questID then
+				StaticPopup_Show("QUESTTARGET_EDIT", self.tooltipTitle, nil, self.questID)
+			end
+		elseif not UnitExists("target") then
+			local msg = self.questID and ("No mobs nearby for " .. self.tooltipTitle) or "No quest mobs nearby"
+			UIErrorsFrame:AddMessage(msg, 1, 0.1, 0.1, 1)
+		end
+	end)
 	return b
 end
 
@@ -286,11 +297,6 @@ for i = 1, MAX_ROWS do
 	text:SetJustifyH("LEFT")
 	text:SetWordWrap(false)
 	row.text = text
-	row:SetScript("PostClick", function(self, button)
-		if button == "RightButton" and self.questID then
-			StaticPopup_Show("QUESTTARGET_EDIT", self.tooltipTitle, nil, self.questID)
-		end
-	end)
 	row:Hide()
 	rows[i] = row
 end
