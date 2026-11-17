@@ -20,6 +20,7 @@ Each button runs a macro like:
 - Keybinds under **Key Bindings → AddOns → Quest Target**: "Target any quest mob" and "Target mobs of quest #1–#10". Slot numbers follow the panel rows.
 - Right-click a quest row to pin it to its current slot (its number turns orange), so that keybind keeps targeting that quest while other quests come and go. Right-click again to unpin. Pins are per character and are cleared when the quest is turned in or abandoned.
 - Shows an error when a button finds no living mob to target.
+- Highlights the quest rows whose mobs include your current target.
 - When your targeted quest mob is too far away to have a nameplate, an arrow above your character points toward it. Addons can't read other units' positions, so the arrow points at the nearest known spawn point of that mob in your zone (from Questie's database) and is approximate. It needs Questie.
 - Buttons can't be changed in combat, so the list refreshes when combat ends. Pressing the buttons works in combat.
 

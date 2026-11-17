@@ -322,8 +322,31 @@ for i = 1, MAX_ROWS do
 	text:SetJustifyH("LEFT")
 	text:SetWordWrap(false)
 	row.text = text
+	-- shown while your current target is one of this quest's mobs
+	local active = row:CreateTexture(nil, "BACKGROUND")
+	active:SetAllPoints()
+	active:SetColorTexture(1, 0.82, 0, 0.25)
+	active:Hide()
+	row.active = active
 	row:Hide()
 	rows[i] = row
+end
+
+-- Plain textures, so this is safe to run in combat.
+local function UpdateTargetHighlight()
+	local name = UnitExists("target") and not UnitIsPlayer("target") and UnitName("target")
+	for _, row in ipairs(rows) do
+		local match = false
+		if name and row.names then
+			for _, mob in ipairs(row.names) do
+				if mob == name then
+					match = true
+					break
+				end
+			end
+		end
+		row.active:SetShown(match)
+	end
 end
 
 local function Update()
@@ -394,6 +417,7 @@ local function Update()
 	ns.questMobs = seen -- name -> true, read by the arrow
 	allButton:SetAttribute("macrotext1", #all > 0 and BuildMacro(all) or nil)
 	headerText:SetFormattedText("Quest Targets |cff999999(%d)|r", #all)
+	UpdateTargetHighlight()
 
 	panel:SetHeight(ROW_HEIGHT * (lastSlot + 1))
 	panel:SetShown(not db.hidden and #quests > 0)
@@ -506,6 +530,7 @@ events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("QUEST_LOG_UPDATE")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
+events:RegisterEvent("PLAYER_TARGET_CHANGED")
 pcall(events.RegisterEvent, events, "QUEST_WATCH_LIST_CHANGED")
 -- a pin lasts until the quest leaves the log (turned in or abandoned)
 pcall(events.RegisterEvent, events, "QUEST_TURNED_IN")
@@ -532,6 +557,10 @@ events:SetScript("OnEvent", function(_, event, arg1)
 	end
 	if (event == "QUEST_TURNED_IN" or event == "QUEST_REMOVED") and arg1 then
 		charDB.pins[arg1] = nil
+	end
+	if event == "PLAYER_TARGET_CHANGED" then
+		UpdateTargetHighlight()
+		return
 	end
 	if event == "PLAYER_REGEN_ENABLED" then
 		if pendingUpdate then
