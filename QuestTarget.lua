@@ -18,6 +18,7 @@ local WIDTH = 220
 local ICON = "Interface\\Icons\\Ability_Hunter_SniperShot"
 
 BINDING_HEADER_QUESTTARGET = "Quest Target"
+_G["BINDING_NAME_CLICK QuestTargetCurrent:LeftButton"] = "Target mobs of current quest"
 for i = 1, MAX_ROWS do
 	_G["BINDING_NAME_CLICK QuestTargetRow" .. i .. ":LeftButton"] = "Target mobs of quest #" .. i
 end
@@ -335,6 +336,14 @@ for i = 1, MAX_ROWS do
 	active:SetColorTexture(1, 0.82, 0, 0.25)
 	active:Hide()
 	row.active = active
+	-- left edge bar on the quest the "Target current quest" keybind uses
+	local currentMark = row:CreateTexture(nil, "OVERLAY")
+	currentMark:SetPoint("TOPRIGHT", row, "TOPLEFT", -2, 0)
+	currentMark:SetPoint("BOTTOMRIGHT", row, "BOTTOMLEFT", -2, 0)
+	currentMark:SetWidth(3)
+	currentMark:SetColorTexture(1, 0.82, 0, 1)
+	currentMark:Hide()
+	row.currentMark = currentMark
 	-- hidden buttons for the chained macro parts (see BuildMacroParts)
 	row.partButtons = {}
 	for part = 2, MAX_PARTS do
@@ -349,9 +358,48 @@ for i = 1, MAX_ROWS do
 	rows[i] = row
 end
 
--- Plain textures, so this is safe to run in combat.
+-- "Target current quest": a hidden button running the current quest's macro.
+-- The current quest is the one your target last belonged to.
+local currentQuestID
+local currentButton = CreateFrame("Button", "QuestTargetCurrent", UIParent, "SecureActionButtonTemplate")
+currentButton:RegisterForClicks(ClickRegistration())
+currentButton:SetAttribute("type1", "macro")
+currentButton:Hide()
+currentButton:SetScript("PostClick", function(self)
+	if not self.row then
+		UIErrorsFrame:AddMessage("No current quest to target", 1, 0.1, 0.1, 1)
+	elseif not UnitExists("target") then
+		UIErrorsFrame:AddMessage("No mobs nearby for " .. (self.row.tooltipTitle or "this quest"), 1, 0.1, 0.1, 1)
+	end
+end)
+
+-- Points the current button at the current quest's row (or row 1).
+-- Secure attributes can't change in combat; Update re-runs this afterwards.
+local function ApplyCurrentQuest()
+	if InCombatLockdown() then
+		pendingUpdate = true
+		return
+	end
+	local current
+	for _, row in ipairs(rows) do
+		if row.questID and row.questID == currentQuestID then
+			current = row
+		end
+	end
+	if not current and rows[1].questID then
+		current = rows[1]
+	end
+	for _, row in ipairs(rows) do
+		row.currentMark:SetShown(row == current)
+	end
+	currentButton.row = current
+	currentButton:SetAttribute("macrotext1", current and current.macroParts and current.macroParts[1] or nil)
+end
+
+-- Plain textures, so the highlight itself is safe to run in combat.
 local function UpdateTargetHighlight()
 	local name = UnitExists("target") and not UnitIsPlayer("target") and UnitName("target")
+	local matched
 	for _, row in ipairs(rows) do
 		local match = false
 		if name and row.names then
@@ -363,7 +411,14 @@ local function UpdateTargetHighlight()
 			end
 		end
 		row.active:SetShown(match)
+		if match and (not matched or row.questID == currentQuestID) then
+			matched = row.questID
+		end
 	end
+	if matched then
+		currentQuestID = matched
+	end
+	ApplyCurrentQuest()
 end
 
 local function Update()

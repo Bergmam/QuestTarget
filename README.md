@@ -17,11 +17,12 @@ Each button runs a macro like:
 - Mob names come from unfinished kill objectives ("X slain: 3/8").
 - With [Questie](https://github.com/Questie/Questie) installed, the mobs that drop the quest items you still need are added too.
 - Shift-right-click a quest row to add your own mob names (comma separated, saved per quest).
-- Keybinds under **Key Bindings → AddOns → Quest Target**: "Target mobs of quest #1–#10". Slot numbers follow the panel rows.
+- Keybinds under **Key Bindings → AddOns → Quest Target**: "Target mobs of current quest" and "Target mobs of quest #1–#10". Slot numbers follow the panel rows.
 - Right-click a quest row to pin it to its current slot (its number turns orange), so that keybind keeps targeting that quest while other quests come and go. Right-click again to unpin. Pins are per character and are cleared when the quest is turned in or abandoned.
 - Shows an error when a button finds no living mob to target.
 - The game limits secure macros to 255 characters, so a quest with many mobs gets its macro split into up to 6 chained parts (hidden buttons, `/click [noexists][dead] ...`). Each part only runs if nothing living was targeted yet.
 - Highlights the quest rows whose mobs include your current target.
+- The current quest is the one your target last belonged to (quest #1 until you target a quest mob), marked with a gold bar left of its row. It stays current after the mob dies, so "Target mobs of current quest" keeps finding that quest's next mob. Buttons can't change in combat, so switching to another quest's mob mid-fight takes effect after combat.
 - When your targeted quest mob is too far away to have a nameplate, an arrow above your character points toward it. Addons can't read other units' positions, so the arrow points at the nearest known spawn point of that mob in your zone (from Questie's database) and is approximate. It needs Questie.
 - Buttons can't be changed in combat, so the list refreshes when combat ends. Pressing the buttons works in combat.
 
