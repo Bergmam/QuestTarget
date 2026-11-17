@@ -4,6 +4,7 @@
 ## Author: Anton
 ## Version: 0.1.0
 ## SavedVariables: QuestTargetDB
+## SavedVariablesPerCharacter: QuestTargetCharDB
 ## OptionalDeps: Questie
 
 QuestTarget.lua

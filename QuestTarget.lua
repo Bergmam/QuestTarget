@@ -22,8 +22,10 @@ for i = 1, MAX_ROWS do
 	_G["BINDING_NAME_CLICK QuestTargetRow" .. i .. ":LeftButton"] = "Target mobs of quest #" .. i
 end
 
-local db
+local db -- account-wide: settings, custom mob names
+local charDB -- per character: pins (questID -> keybind slot)
 local pendingUpdate = false
+local QueueUpdate
 
 local function Print(msg)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffQuestTarget|r: " .. tostring(msg))
@@ -241,7 +243,13 @@ local function ShowNamesTooltip(self)
 		GameTooltip:AddLine(name, 1, 1, 1)
 	end
 	if self.questID then
-		GameTooltip:AddLine("Right-click: add mob names", 0.6, 0.6, 0.6)
+		if self.pinned then
+			GameTooltip:AddLine("Pinned to keybind #" .. self.slot, 1, 0.6, 0)
+			GameTooltip:AddLine("Right-click: unpin", 0.6, 0.6, 0.6)
+		else
+			GameTooltip:AddLine("Right-click: pin to keybind #" .. self.slot, 0.6, 0.6, 0.6)
+		end
+		GameTooltip:AddLine("Shift-right-click: add mob names", 0.6, 0.6, 0.6)
 	end
 	GameTooltip:Show()
 end
@@ -267,9 +275,24 @@ local function CreateTargetButton(name, parent)
 	-- PostClick runs after the macro, so the target is already updated here.
 	b:SetScript("PostClick", function(self, button)
 		if button == "RightButton" then
-			if self.questID then
-				StaticPopup_Show("QUESTTARGET_EDIT", self.tooltipTitle, nil, self.questID)
+			if not self.questID then
+				return
 			end
+			if IsShiftKeyDown() then
+				StaticPopup_Show("QUESTTARGET_EDIT", self.tooltipTitle, nil, self.questID)
+			elseif self.pinned then
+				charDB.pins[self.questID] = nil
+				QueueUpdate()
+			else
+				for questID, slot in pairs(charDB.pins) do
+					if slot == self.slot then
+						charDB.pins[questID] = nil -- one quest per slot
+					end
+				end
+				charDB.pins[self.questID] = self.slot
+				QueueUpdate()
+			end
+			GameTooltip:Hide()
 		elseif not UnitExists("target") then
 			local msg = self.questID and ("No mobs nearby for " .. self.tooltipTitle) or "No quest mobs nearby"
 			UIErrorsFrame:AddMessage(msg, 1, 0.1, 0.1, 1)
@@ -289,6 +312,7 @@ allButton:SetScript("OnDragStop", header:GetScript("OnDragStop"))
 local rows = {}
 for i = 1, MAX_ROWS do
 	local row = CreateTargetButton("QuestTargetRow" .. i, panel)
+	row.slot = i
 	row:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -i * ROW_HEIGHT)
 	row:SetPoint("RIGHT", panel, "RIGHT")
 	local text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -309,18 +333,50 @@ local function Update()
 	pendingUpdate = false
 
 	local quests = CollectQuests()
+
+	-- Pinned quests take their slot; the rest fill the free slots in log order.
+	local slots, lastSlot = {}, 0
+	for _, q in ipairs(quests) do
+		local slot = q.questID and charDB.pins[q.questID]
+		if slot and slot <= MAX_ROWS and not slots[slot] then
+			slots[slot] = q
+			q.pinned = true
+			lastSlot = math.max(lastSlot, slot)
+		end
+	end
+	local nextSlot = 1
+	for _, q in ipairs(quests) do
+		if not q.pinned then
+			while slots[nextSlot] do
+				nextSlot = nextSlot + 1
+			end
+			if nextSlot > MAX_ROWS then
+				break
+			end
+			slots[nextSlot] = q
+			lastSlot = math.max(lastSlot, nextSlot)
+		end
+	end
+
 	local all, seen = {}, {}
 	for i, row in ipairs(rows) do
-		local q = quests[i]
+		local q = slots[i]
 		if q then
 			row.questID = q.questID
 			row.names = q.names
 			row.tooltipTitle = q.title
-			row.text:SetFormattedText("%d. %s |cff999999(%d)|r", i, q.title, #q.names)
+			row.pinned = q.pinned
+			row.text:SetFormattedText(
+				"%s%d.|r %s |cff999999(%d)|r",
+				q.pinned and "|cffff9900" or "|cffffffff",
+				i,
+				q.title,
+				#q.names
+			)
 			row:SetAttribute("macrotext1", BuildMacro(q.names))
 			row:Show()
 		else
-			row.questID, row.names = nil, nil
+			row.questID, row.names, row.pinned = nil, nil, nil
 			row:SetAttribute("macrotext1", nil)
 			row:Hide()
 		end
@@ -337,13 +393,12 @@ local function Update()
 	allButton:SetAttribute("macrotext1", #all > 0 and BuildMacro(all) or nil)
 	headerText:SetFormattedText("Quest Targets |cff999999(%d)|r", #all)
 
-	local shown = math.min(#quests, MAX_ROWS)
-	panel:SetHeight(ROW_HEIGHT * (shown + 1))
+	panel:SetHeight(ROW_HEIGHT * (lastSlot + 1))
 	panel:SetShown(not db.hidden and #quests > 0)
 end
 
 local updateQueued = false
-local function QueueUpdate()
+QueueUpdate = function()
 	if updateQueued then
 		return
 	end
@@ -409,12 +464,18 @@ events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("QUEST_LOG_UPDATE")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 pcall(events.RegisterEvent, events, "QUEST_WATCH_LIST_CHANGED")
+-- a pin lasts until the quest leaves the log (turned in or abandoned)
+pcall(events.RegisterEvent, events, "QUEST_TURNED_IN")
+pcall(events.RegisterEvent, events, "QUEST_REMOVED")
 events:SetScript("OnEvent", function(_, event, arg1)
 	if event == "ADDON_LOADED" then
 		if arg1 == ADDON then
 			QuestTargetDB = QuestTargetDB or {}
 			db = QuestTargetDB
 			db.custom = db.custom or {}
+			QuestTargetCharDB = QuestTargetCharDB or {}
+			charDB = QuestTargetCharDB
+			charDB.pins = charDB.pins or {}
 			RestorePosition()
 		elseif arg1 == "Questie" and db then
 			QueueUpdate()
@@ -423,6 +484,9 @@ events:SetScript("OnEvent", function(_, event, arg1)
 	end
 	if not db then
 		return
+	end
+	if (event == "QUEST_TURNED_IN" or event == "QUEST_REMOVED") and arg1 then
+		charDB.pins[arg1] = nil
 	end
 	if event == "PLAYER_REGEN_ENABLED" then
 		if pendingUpdate then
@@ -454,6 +518,10 @@ SlashCmdList.QUESTTARGET = function(msg)
 			RestorePosition()
 		end
 		Print("position reset")
+	elseif cmd == "unpin" then
+		wipe(charDB.pins)
+		QueueUpdate()
+		Print("all quests unpinned")
 	elseif cmd == "macro" then
 		Print("\n" .. (allButton:GetAttribute("macrotext1") or "(no quest mobs)"))
 	elseif cmd == "" or cmd == "toggle" then
@@ -461,6 +529,6 @@ SlashCmdList.QUESTTARGET = function(msg)
 		QueueUpdate()
 		Print(db.hidden and "panel hidden (keybinds still work)" or "panel shown")
 	else
-		Print("/qt - show/hide panel | /qt lock | /qt watched | /qt reset | /qt macro")
+		Print("/qt - show/hide panel | /qt lock | /qt watched | /qt reset | /qt unpin | /qt macro")
 	end
 end

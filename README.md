@@ -16,8 +16,10 @@ Each button runs a macro like:
 - A movable panel: the header targets any quest mob, and each row below it targets that quest's mobs.
 - Mob names come from unfinished kill objectives ("X slain: 3/8").
 - With [Questie](https://github.com/Questie/Questie) installed, the mobs that drop the quest items you still need are added too.
-- Right-click a quest row to add your own mob names (comma separated, saved per quest).
-- Keybinds under **Key Bindings → AddOns → Quest Target**: "Target any quest mob" and "Target mobs of quest #1–#10".
+- Shift-right-click a quest row to add your own mob names (comma separated, saved per quest).
+- Keybinds under **Key Bindings → AddOns → Quest Target**: "Target any quest mob" and "Target mobs of quest #1–#10". Slot numbers follow the panel rows.
+- Right-click a quest row to pin it to its current slot (its number turns orange), so that keybind keeps targeting that quest while other quests come and go. Right-click again to unpin. Pins are per character and are cleared when the quest is turned in or abandoned.
+- Shows an error when a button finds no living mob to target.
 - Buttons can't be changed in combat, so the list refreshes when combat ends. Pressing the buttons works in combat.
 
 ## Install
@@ -32,6 +34,7 @@ Copy this folder into `World of Warcraft/<flavor>/Interface/AddOns/QuestTarget`.
 | `/qt lock` | Lock/unlock the panel position |
 | `/qt watched` | Only list watched quests |
 | `/qt reset` | Reset the panel position |
+| `/qt unpin` | Unpin all quests |
 | `/qt macro` | Print the combined macro |
 
 ## Notes
