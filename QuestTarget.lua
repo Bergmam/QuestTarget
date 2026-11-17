@@ -1,4 +1,4 @@
--- QuestTarget: a secure "target macro" button per quest, plus one for all quests.
+-- QuestTarget: a secure "target macro" button per quest. Quests are never combined.
 --
 -- For every quest with unfinished kill objectives (and, when Questie is loaded,
 -- the mobs that drop unfinished quest items) we build:
@@ -10,14 +10,14 @@
 
 local ADDON, ns = ...
 local MAX_ROWS = 10
-local MAX_MACRO = 1000
+local MAX_MACRO = 255 -- the game blocks longer secure macro text
+local MAX_PARTS = 6 -- chained macros per quest (about 5 mobs each)
 local MAX_DROP_NPCS = 6 -- per quest item, when pulling drop sources from Questie
 local ROW_HEIGHT = 18
 local WIDTH = 220
 local ICON = "Interface\\Icons\\Ability_Hunter_SniperShot"
 
 BINDING_HEADER_QUESTTARGET = "Quest Target"
-_G["BINDING_NAME_CLICK QuestTargetAll:LeftButton"] = "Target any quest mob"
 for i = 1, MAX_ROWS do
 	_G["BINDING_NAME_CLICK QuestTargetRow" .. i .. ":LeftButton"] = "Target mobs of quest #" .. i
 end
@@ -183,20 +183,36 @@ local function CollectQuests()
 	return quests
 end
 
-local function BuildMacro(names)
+local function PartButtonName(slot, part)
+	return "QTR" .. slot .. "P" .. part -- short: it's repeated inside the macro text
+end
+
+-- Secure macro text is capped at MAX_MACRO (255) characters, so a quest's
+-- mob list is split into parts. Each part hands over to the next with
+-- "/click [noexists][dead] <next part>", so the next part only runs while
+-- nothing living has been targeted yet. Returns a list of macro texts.
+local function BuildMacroParts(names, slot)
 	local tail = "/cleartarget [dead]"
-	local lines = { "/cleartarget" }
-	local len = #lines[1] + #tail + 2
+	local parts, lines, len = {}, { "/cleartarget" }, #"/cleartarget"
 	for _, name in ipairs(names) do
 		local line = "/target [noexists][dead] " .. name
-		if len + #line + 1 > MAX_MACRO then
-			break
+		-- keep room for whichever ending this part gets
+		local handOver = "/click [noexists][dead] " .. PartButtonName(slot, #parts + 2)
+		local reserve = math.max(#handOver, #tail) + 1
+		if len + 1 + #line + reserve > MAX_MACRO and #lines > 0 then
+			if #parts + 1 >= MAX_PARTS then
+				break -- out of parts; drop the remaining mobs
+			end
+			lines[#lines + 1] = handOver
+			parts[#parts + 1] = table.concat(lines, "\n")
+			lines, len = {}, -1
 		end
 		lines[#lines + 1] = line
-		len = len + #line + 1
+		len = len + 1 + #line
 	end
 	lines[#lines + 1] = tail
-	return table.concat(lines, "\n")
+	parts[#parts + 1] = table.concat(lines, "\n")
+	return parts
 end
 
 ---------------------------------------------------------------------------
@@ -226,7 +242,7 @@ header:SetScript("OnDragStop", function()
 end)
 
 local headerText = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-headerText:SetPoint("LEFT", ROW_HEIGHT + 4, 0)
+headerText:SetPoint("LEFT", 4, 0)
 headerText:SetText("Quest Targets")
 
 local function ClickRegistration()
@@ -295,20 +311,11 @@ local function CreateTargetButton(name, parent)
 			end
 			GameTooltip:Hide()
 		elseif not UnitExists("target") then
-			local msg = self.questID and ("No mobs nearby for " .. self.tooltipTitle) or "No quest mobs nearby"
-			UIErrorsFrame:AddMessage(msg, 1, 0.1, 0.1, 1)
+			UIErrorsFrame:AddMessage("No mobs nearby for " .. (self.tooltipTitle or "this quest"), 1, 0.1, 0.1, 1)
 		end
 	end)
 	return b
 end
-
-local allButton = CreateTargetButton("QuestTargetAll", header)
-allButton:SetAllPoints(header)
-allButton.tooltipTitle = "All quest mobs"
--- keep the header draggable through the button
-allButton:RegisterForDrag("LeftButton")
-allButton:SetScript("OnDragStart", header:GetScript("OnDragStart"))
-allButton:SetScript("OnDragStop", header:GetScript("OnDragStop"))
 
 local rows = {}
 for i = 1, MAX_ROWS do
@@ -328,6 +335,16 @@ for i = 1, MAX_ROWS do
 	active:SetColorTexture(1, 0.82, 0, 0.25)
 	active:Hide()
 	row.active = active
+	-- hidden buttons for the chained macro parts (see BuildMacroParts)
+	row.partButtons = {}
+	for part = 2, MAX_PARTS do
+		local helper = CreateFrame("Button", PartButtonName(i, part), UIParent, "SecureActionButtonTemplate")
+		-- /click sends a single click, so registering both never runs it twice
+		helper:RegisterForClicks("AnyUp", "AnyDown")
+		helper:SetAttribute("type", "macro")
+		helper:Hide()
+		row.partButtons[part] = helper
+	end
 	row:Hide()
 	rows[i] = row
 end
@@ -382,7 +399,7 @@ local function Update()
 		end
 	end
 
-	local all, seen = {}, {}
+	local seen = {}
 	for i, row in ipairs(rows) do
 		local q = slots[i]
 		if q then
@@ -397,11 +414,19 @@ local function Update()
 				q.title,
 				#q.names
 			)
-			row:SetAttribute("macrotext1", BuildMacro(q.names))
+			local parts = BuildMacroParts(q.names, i)
+			row.macroParts = parts
+			row:SetAttribute("macrotext1", parts[1])
+			for part, helper in pairs(row.partButtons) do
+				helper:SetAttribute("macrotext", parts[part])
+			end
 			row:Show()
 		else
-			row.questID, row.names, row.pinned = nil, nil, nil
+			row.questID, row.names, row.pinned, row.macroParts = nil, nil, nil, nil
 			row:SetAttribute("macrotext1", nil)
+			for _, helper in pairs(row.partButtons) do
+				helper:SetAttribute("macrotext", nil)
+			end
 			row:Hide()
 		end
 	end
@@ -409,14 +434,11 @@ local function Update()
 		for _, name in ipairs(q.names) do
 			if not seen[name] then
 				seen[name] = true
-				all[#all + 1] = name
 			end
 		end
 	end
-	allButton.names = all
 	ns.questMobs = seen -- name -> true, read by the arrow
-	allButton:SetAttribute("macrotext1", #all > 0 and BuildMacro(all) or nil)
-	headerText:SetFormattedText("Quest Targets |cff999999(%d)|r", #all)
+	headerText:SetFormattedText("Quest Targets |cff999999(%d)|r", #quests)
 	UpdateTargetHighlight()
 
 	panel:SetHeight(ROW_HEIGHT * (lastSlot + 1))
@@ -606,13 +628,21 @@ SlashCmdList.QUESTTARGET = function(msg)
 		wipe(charDB.pins)
 		QueueUpdate()
 		Print("all quests unpinned")
-	elseif cmd == "macro" then
-		Print("\n" .. (allButton:GetAttribute("macrotext1") or "(no quest mobs)"))
+	elseif cmd:match("^macro") then
+		local row = rows[tonumber(cmd:match("^macro%s+(%d+)")) or 1]
+		if row and row.macroParts then
+			Print(row.tooltipTitle .. " (" .. #row.macroParts .. " part(s))")
+			for part, text in ipairs(row.macroParts) do
+				Print(("-- part %d, %d chars\n%s"):format(part, #text, text))
+			end
+		else
+			Print("no quest in that slot")
+		end
 	elseif cmd == "" or cmd == "toggle" then
 		db.hidden = not db.hidden
 		QueueUpdate()
 		Print(db.hidden and "panel hidden (keybinds still work)" or "panel shown")
 	else
-		Print("/qt - show/hide panel | /qt lock | /qt watched | /qt reset | /qt autopin | /qt arrow | /qt unpin | /qt macro")
+		Print("/qt - show/hide panel | /qt lock | /qt watched | /qt reset | /qt autopin | /qt arrow | /qt unpin | /qt macro <slot>")
 	end
 end

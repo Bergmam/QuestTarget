@@ -1,6 +1,5 @@
 <Bindings>
-	<Binding name="CLICK QuestTargetAll:LeftButton" header="QUESTTARGET" category="ADDONS"/>
-	<Binding name="CLICK QuestTargetRow1:LeftButton" category="ADDONS"/>
+	<Binding name="CLICK QuestTargetRow1:LeftButton" header="QUESTTARGET" category="ADDONS"/>
 	<Binding name="CLICK QuestTargetRow2:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK QuestTargetRow3:LeftButton" category="ADDONS"/>
 	<Binding name="CLICK QuestTargetRow4:LeftButton" category="ADDONS"/>
