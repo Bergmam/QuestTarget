@@ -458,6 +458,47 @@ StaticPopupDialogs["QUESTTARGET_EDIT"] = {
 -- Events and slash command
 ---------------------------------------------------------------------------
 
+local function AutoPinEnabled()
+	return db.autoPin ~= false -- on by default
+end
+
+-- Killing a quest's mob pins that quest to the slot it's in right now.
+-- Rows can't move during combat, so the current slot is the one the player sees.
+local function AutoPinForKill(mobName)
+	for _, row in ipairs(rows) do
+		if row.questID and not row.pinned and row.names then
+			for _, name in ipairs(row.names) do
+				if name == mobName then
+					charDB.pins[row.questID] = row.slot
+					row.pinned = true
+					QueueUpdate()
+					break
+				end
+			end
+		end
+	end
+end
+
+local combatLog = CreateFrame("Frame")
+combatLog:SetScript("OnEvent", function()
+	local _, subevent, _, _, _, _, _, destGUID, destName = CombatLogGetCurrentEventInfo()
+	-- PARTY_KILL: killing blow by you or your group. UNIT_DIED on your target
+	-- also covers kills finished by pets or others.
+	if subevent == "PARTY_KILL" or (subevent == "UNIT_DIED" and destGUID == UnitGUID("target")) then
+		if destName then
+			AutoPinForKill(destName)
+		end
+	end
+end)
+
+local function UpdateAutoPinListener()
+	if AutoPinEnabled() then
+		combatLog:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+	else
+		combatLog:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+	end
+end
+
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -477,6 +518,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
 			charDB = QuestTargetCharDB
 			charDB.pins = charDB.pins or {}
 			RestorePosition()
+			UpdateAutoPinListener()
 		elseif arg1 == "Questie" and db then
 			QueueUpdate()
 		end
@@ -518,6 +560,10 @@ SlashCmdList.QUESTTARGET = function(msg)
 			RestorePosition()
 		end
 		Print("position reset")
+	elseif cmd == "autopin" then
+		db.autoPin = not AutoPinEnabled()
+		UpdateAutoPinListener()
+		Print(db.autoPin and "auto-pin on: killing a quest's mob pins that quest" or "auto-pin off")
 	elseif cmd == "unpin" then
 		wipe(charDB.pins)
 		QueueUpdate()
@@ -529,6 +575,6 @@ SlashCmdList.QUESTTARGET = function(msg)
 		QueueUpdate()
 		Print(db.hidden and "panel hidden (keybinds still work)" or "panel shown")
 	else
-		Print("/qt - show/hide panel | /qt lock | /qt watched | /qt reset | /qt unpin | /qt macro")
+		Print("/qt - show/hide panel | /qt lock | /qt watched | /qt reset | /qt autopin | /qt unpin | /qt macro")
 	end
 end

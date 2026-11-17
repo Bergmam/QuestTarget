@@ -34,6 +34,7 @@ Copy this folder into `World of Warcraft/<flavor>/Interface/AddOns/QuestTarget`.
 | `/qt lock` | Lock/unlock the panel position |
 | `/qt watched` | Only list watched quests |
 | `/qt reset` | Reset the panel position |
+| `/qt autopin` | Toggle auto-pinning (on by default): killing a quest's mob pins that quest to its current slot |
 | `/qt unpin` | Unpin all quests |
 | `/qt macro` | Print the combined macro |
 
