@@ -8,3 +8,4 @@
 ## OptionalDeps: Questie
 
 QuestTarget.lua
+Arrow.lua

@@ -8,7 +8,7 @@
 --   /cleartarget [dead]
 -- Secure attributes can't change in combat, so updates are queued until it ends.
 
-local ADDON = ...
+local ADDON, ns = ...
 local MAX_ROWS = 10
 local MAX_MACRO = 1000
 local MAX_DROP_NPCS = 6 -- per quest item, when pulling drop sources from Questie
@@ -113,6 +113,7 @@ local function GetQuestieDB()
 		return QuestieDB
 	end
 end
+ns.GetQuestieDB = GetQuestieDB
 
 local function QuestieMobNames(questID, objectives, add)
 	local QuestieDB = GetQuestieDB()
@@ -390,6 +391,7 @@ local function Update()
 		end
 	end
 	allButton.names = all
+	ns.questMobs = seen -- name -> true, read by the arrow
 	allButton:SetAttribute("macrotext1", #all > 0 and BuildMacro(all) or nil)
 	headerText:SetFormattedText("Quest Targets |cff999999(%d)|r", #all)
 
@@ -514,6 +516,7 @@ events:SetScript("OnEvent", function(_, event, arg1)
 			QuestTargetDB = QuestTargetDB or {}
 			db = QuestTargetDB
 			db.custom = db.custom or {}
+			ns.db = db
 			QuestTargetCharDB = QuestTargetCharDB or {}
 			charDB = QuestTargetCharDB
 			charDB.pins = charDB.pins or {}
@@ -564,6 +567,12 @@ SlashCmdList.QUESTTARGET = function(msg)
 		db.autoPin = not AutoPinEnabled()
 		UpdateAutoPinListener()
 		Print(db.autoPin and "auto-pin on: killing a quest's mob pins that quest" or "auto-pin off")
+	elseif cmd == "arrow" then
+		db.arrow = db.arrow == false
+		if ns.RefreshArrow then
+			ns.RefreshArrow()
+		end
+		Print(db.arrow and "arrow on" or "arrow off")
 	elseif cmd == "unpin" then
 		wipe(charDB.pins)
 		QueueUpdate()
@@ -575,6 +584,6 @@ SlashCmdList.QUESTTARGET = function(msg)
 		QueueUpdate()
 		Print(db.hidden and "panel hidden (keybinds still work)" or "panel shown")
 	else
-		Print("/qt - show/hide panel | /qt lock | /qt watched | /qt reset | /qt autopin | /qt unpin | /qt macro")
+		Print("/qt - show/hide panel | /qt lock | /qt watched | /qt reset | /qt autopin | /qt arrow | /qt unpin | /qt macro")
 	end
 end
