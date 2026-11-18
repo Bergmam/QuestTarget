@@ -18,6 +18,7 @@ Each button runs a macro like:
 - With [Questie](https://github.com/Questie/Questie) installed, the mobs that drop the quest items you still need are added too.
 - Shift-right-click a quest row to add your own mob names (comma separated, saved per quest).
 - Keybinds under **Key Bindings → AddOns → Quest Target**: "Target mobs of current quest" and "Target mobs of quest #1–#10". Slot numbers follow the panel rows.
+- Killing a quest's mob moves that quest to the top of the list, pushing the others down. The list reorders when combat ends (the game doesn't allow it during combat). Pinned quests keep their slot.
 - Right-click a quest row to pin it to its current slot (its number turns orange), so that keybind keeps targeting that quest while other quests come and go. Right-click again to unpin. Pins are per character and are cleared when the quest is turned in or abandoned.
 - Shows an error when a button finds no living mob to target.
 - The game limits secure macros to 255 characters, so a quest with many mobs gets its macro split into up to 6 chained parts (hidden buttons, `/click [noexists][dead] ...`). Each part only runs if nothing living was targeted yet.
@@ -38,7 +39,7 @@ Copy this folder into `World of Warcraft/<flavor>/Interface/AddOns/QuestTarget`.
 | `/qt lock` | Lock/unlock the panel position |
 | `/qt watched` | Only list watched quests |
 | `/qt reset` | Reset the panel position |
-| `/qt autopin` | Toggle auto-pinning (on by default): killing a quest's mob pins that quest to its current slot |
+| `/qt autopin` | Toggle auto-pinning (off by default): killing a quest's mob pins that quest to its current slot instead of moving it to the top |
 | `/qt arrow` | Toggle the direction arrow (on by default) |
 | `/qt unpin` | Unpin all quests |
 | `/qt macro <slot>` | Print the macro parts for the quest in that slot |

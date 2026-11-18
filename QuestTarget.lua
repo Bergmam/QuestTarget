@@ -430,7 +430,23 @@ local function Update()
 
 	local quests = CollectQuests()
 
-	-- Pinned quests take their slot; the rest fill the free slots in log order.
+	-- Most recently killed-for quests first, then quest log order.
+	local rank = {}
+	for i, questID in ipairs(charDB.recent) do
+		rank[questID] = i
+	end
+	for i, q in ipairs(quests) do
+		q.logIndex = i
+	end
+	table.sort(quests, function(a, b)
+		local ra, rb = rank[a.questID] or math.huge, rank[b.questID] or math.huge
+		if ra ~= rb then
+			return ra < rb
+		end
+		return a.logIndex < b.logIndex
+	end)
+
+	-- Pinned quests take their slot; the rest fill the free slots in that order.
 	local slots, lastSlot = {}, 0
 	for _, q in ipairs(quests) do
 		local slot = q.questID and charDB.pins[q.questID]
@@ -485,14 +501,18 @@ local function Update()
 			row:Hide()
 		end
 	end
+	local mobQuests = {} -- name -> { questID, ... }, for every quest, shown or not
 	for _, q in ipairs(quests) do
 		for _, name in ipairs(q.names) do
-			if not seen[name] then
-				seen[name] = true
+			seen[name] = true
+			if q.questID then
+				mobQuests[name] = mobQuests[name] or {}
+				table.insert(mobQuests[name], q.questID)
 			end
 		end
 	end
 	ns.questMobs = seen -- name -> true, read by the arrow
+	ns.mobQuests = mobQuests
 	headerText:SetFormattedText("Quest Targets |cff999999(%d)|r", #quests)
 	UpdateTargetHighlight()
 
@@ -561,8 +581,32 @@ StaticPopupDialogs["QUESTTARGET_EDIT"] = {
 -- Events and slash command
 ---------------------------------------------------------------------------
 
+local MAX_RECENT = 50
+
 local function AutoPinEnabled()
-	return db.autoPin ~= false -- on by default
+	return db.autoPin == true -- off by default: it would stop killed quests moving to the top
+end
+
+-- Killing a quest's mob moves that quest to the top of the list (rows only
+-- move outside combat, so the list reorders once the fight ends).
+local function MoveKilledQuestToTop(mobName)
+	local questIDs = ns.mobQuests and ns.mobQuests[mobName]
+	if not questIDs then
+		return
+	end
+	for i = #questIDs, 1, -1 do
+		local questID = questIDs[i]
+		for j = #charDB.recent, 1, -1 do
+			if charDB.recent[j] == questID then
+				table.remove(charDB.recent, j)
+			end
+		end
+		table.insert(charDB.recent, 1, questID)
+	end
+	while #charDB.recent > MAX_RECENT do
+		table.remove(charDB.recent)
+	end
+	QueueUpdate()
 end
 
 -- Killing a quest's mob pins that quest to the slot it's in right now.
@@ -588,19 +632,15 @@ combatLog:SetScript("OnEvent", function()
 	-- PARTY_KILL: killing blow by you or your group. UNIT_DIED on your target
 	-- also covers kills finished by pets or others.
 	if subevent == "PARTY_KILL" or (subevent == "UNIT_DIED" and destGUID == UnitGUID("target")) then
-		if destName then
-			AutoPinForKill(destName)
+		if destName and charDB then
+			if AutoPinEnabled() then
+				AutoPinForKill(destName)
+			end
+			MoveKilledQuestToTop(destName)
 		end
 	end
 end)
-
-local function UpdateAutoPinListener()
-	if AutoPinEnabled() then
-		combatLog:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-	else
-		combatLog:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-	end
-end
+combatLog:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
@@ -622,8 +662,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
 			QuestTargetCharDB = QuestTargetCharDB or {}
 			charDB = QuestTargetCharDB
 			charDB.pins = charDB.pins or {}
+			charDB.recent = charDB.recent or {} -- questIDs, most recent kill first
 			RestorePosition()
-			UpdateAutoPinListener()
 		elseif arg1 == "Questie" and db then
 			QueueUpdate()
 		end
@@ -634,6 +674,11 @@ events:SetScript("OnEvent", function(_, event, arg1)
 	end
 	if (event == "QUEST_TURNED_IN" or event == "QUEST_REMOVED") and arg1 then
 		charDB.pins[arg1] = nil
+		for i = #charDB.recent, 1, -1 do
+			if charDB.recent[i] == arg1 then
+				table.remove(charDB.recent, i)
+			end
+		end
 	end
 	if event == "PLAYER_TARGET_CHANGED" then
 		UpdateTargetHighlight()
@@ -671,7 +716,6 @@ SlashCmdList.QUESTTARGET = function(msg)
 		Print("position reset")
 	elseif cmd == "autopin" then
 		db.autoPin = not AutoPinEnabled()
-		UpdateAutoPinListener()
 		Print(db.autoPin and "auto-pin on: killing a quest's mob pins that quest" or "auto-pin off")
 	elseif cmd == "arrow" then
 		db.arrow = db.arrow == false
