@@ -28,6 +28,16 @@ local charDB -- per character: pins (questID -> keybind slot)
 local pendingUpdate = false
 local QueueUpdate
 
+-- WoW Forever hands some values to addons as "secret" (e.g. GUIDs and names
+-- inside dungeons). They can't be compared or used as keys; treat them as nil.
+local function Plain(v)
+	if type(issecretvalue) == "function" and issecretvalue(v) then
+		return nil
+	end
+	return v
+end
+ns.Plain = Plain
+
 local function Print(msg)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffQuestTarget|r: " .. tostring(msg))
 end
@@ -398,7 +408,7 @@ end
 
 -- Plain textures, so the highlight itself is safe to run in combat.
 local function UpdateTargetHighlight()
-	local name = UnitExists("target") and not UnitIsPlayer("target") and UnitName("target")
+	local name = UnitExists("target") and not Plain(UnitIsPlayer("target")) and Plain(UnitName("target"))
 	local matched
 	for _, row in ipairs(rows) do
 		local match = false
@@ -502,7 +512,11 @@ local function Update()
 		end
 	end
 	local mobQuests = {} -- name -> { questID, ... }, for every quest, shown or not
+	local questTitles = {}
 	for _, q in ipairs(quests) do
+		if q.questID then
+			questTitles[q.questID] = q.title
+		end
 		for _, name in ipairs(q.names) do
 			seen[name] = true
 			if q.questID then
@@ -513,6 +527,7 @@ local function Update()
 	end
 	ns.questMobs = seen -- name -> true, read by the arrow
 	ns.mobQuests = mobQuests
+	ns.questTitles = questTitles
 	headerText:SetFormattedText("Quest Targets |cff999999(%d)|r", #quests)
 	UpdateTargetHighlight()
 
@@ -626,21 +641,96 @@ local function AutoPinForKill(mobName)
 	end
 end
 
-local combatLog = CreateFrame("Frame")
-combatLog:SetScript("OnEvent", function()
-	local _, subevent, _, _, _, _, _, destGUID, destName = CombatLogGetCurrentEventInfo()
-	-- PARTY_KILL: killing blow by you or your group. UNIT_DIED on your target
-	-- also covers kills finished by pets or others.
-	if subevent == "PARTY_KILL" or (subevent == "UNIT_DIED" and destGUID == UnitGUID("target")) then
-		if destName and charDB then
-			if AutoPinEnabled() then
-				AutoPinForKill(destName)
-			end
-			MoveKilledQuestToTop(destName)
+-- /qt debug: one chat line per kill saying which quests it matched
+local function DebugKill(mobName, subevent)
+	local questIDs = ns.mobQuests and ns.mobQuests[mobName]
+	if not questIDs then
+		Print(("killed %s (%s): no quest in the list has this mob"):format(mobName, subevent))
+		return
+	end
+	local parts = {}
+	for _, questID in ipairs(questIDs) do
+		local title = (ns.questTitles and ns.questTitles[questID]) or tostring(questID)
+		local pinned = charDB.pins[questID]
+		parts[#parts + 1] = pinned and ("%s (pinned to #%d, stays there)"):format(title, pinned) or title
+	end
+	Print(
+		("killed %s (%s): moved to top: %s%s"):format(
+			mobName,
+			subevent,
+			table.concat(parts, ", "),
+			InCombatLockdown() and " - list reorders after combat" or ""
+		)
+	)
+end
+
+-- Kill detection. WoW Forever closes COMBAT_LOG_EVENT_* to addons (registering
+-- for it gets the addon blocked), so kills come from the standalone
+-- PARTY_KILL / UNIT_DIED events. Those carry only GUIDs, so we remember the
+-- names of units we've seen (target, mouseover, nameplates) by GUID.
+local MAX_GUID_NAMES = 500
+local guidNames, guidNameCount = {}, 0
+
+local function RememberUnit(unit)
+	local guid, name = Plain(UnitGUID(unit)), Plain(UnitName(unit))
+	if type(guid) ~= "string" or type(name) ~= "string" or guidNames[guid] then
+		return
+	end
+	if guidNameCount >= MAX_GUID_NAMES then
+		wipe(guidNames)
+		guidNameCount = 0
+	end
+	guidNames[guid] = name
+	guidNameCount = guidNameCount + 1
+end
+
+local lastKillGUID
+local function OnKill(guid, how)
+	guid = Plain(guid)
+	if type(guid) ~= "string" or not charDB or guid == lastKillGUID then
+		return
+	end
+	lastKillGUID = guid -- both events can fire for one kill
+	local name = guidNames[guid]
+	if not name then
+		if db.debug then
+			Print(("a kill (%s) of a mob QuestTarget never saw (not targeted, hovered or on a nameplate)"):format(how))
 		end
+		return
+	end
+	if db.debug then
+		DebugKill(name, how)
+	end
+	if AutoPinEnabled() then
+		AutoPinForKill(name)
+	end
+	MoveKilledQuestToTop(name)
+end
+
+local kills = CreateFrame("Frame")
+pcall(kills.RegisterEvent, kills, "PARTY_KILL")
+pcall(kills.RegisterEvent, kills, "UNIT_DIED")
+kills:RegisterEvent("PLAYER_TARGET_CHANGED")
+kills:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+pcall(kills.RegisterEvent, kills, "NAME_PLATE_UNIT_ADDED")
+kills:SetScript("OnEvent", function(_, event, arg1, arg2)
+	if event == "PARTY_KILL" then
+		-- your group landed the killing blow: arg1 = killer, arg2 = victim
+		OnKill(arg2, "PARTY_KILL")
+	elseif event == "UNIT_DIED" then
+		-- any nearby death; only count your target (covers pet/other kills)
+		local guid = Plain(arg1)
+		if guid and guid == Plain(UnitGUID("target")) then
+			OnKill(guid, "UNIT_DIED")
+		end
+	elseif event == "PLAYER_TARGET_CHANGED" then
+		RememberUnit("target")
+	elseif event == "UPDATE_MOUSEOVER_UNIT" then
+		RememberUnit("mouseover")
+	elseif event == "NAME_PLATE_UNIT_ADDED" and type(arg1) == "string" then
+		RememberUnit(arg1)
 	end
 end)
-combatLog:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
@@ -717,6 +807,9 @@ SlashCmdList.QUESTTARGET = function(msg)
 	elseif cmd == "autopin" then
 		db.autoPin = not AutoPinEnabled()
 		Print(db.autoPin and "auto-pin on: killing a quest's mob pins that quest" or "auto-pin off")
+	elseif cmd == "debug" then
+		db.debug = not db.debug
+		Print(db.debug and "debug on: each kill prints which quests it matched" or "debug off")
 	elseif cmd == "arrow" then
 		db.arrow = db.arrow == false
 		if ns.RefreshArrow then
@@ -742,6 +835,6 @@ SlashCmdList.QUESTTARGET = function(msg)
 		QueueUpdate()
 		Print(db.hidden and "panel hidden (keybinds still work)" or "panel shown")
 	else
-		Print("/qt - show/hide panel | /qt lock | /qt watched | /qt reset | /qt autopin | /qt arrow | /qt unpin | /qt macro <slot>")
+		Print("/qt - show/hide panel | /qt lock | /qt watched | /qt reset | /qt autopin | /qt arrow | /qt debug | /qt unpin | /qt macro <slot>")
 	end
 end

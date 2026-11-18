@@ -41,9 +41,12 @@ Copy this folder into `World of Warcraft/<flavor>/Interface/AddOns/QuestTarget`.
 | `/qt reset` | Reset the panel position |
 | `/qt autopin` | Toggle auto-pinning (off by default): killing a quest's mob pins that quest to its current slot instead of moving it to the top |
 | `/qt arrow` | Toggle the direction arrow (on by default) |
+| `/qt debug` | Toggle a chat line on each kill showing which quests it matched |
 | `/qt unpin` | Unpin all quests |
 | `/qt macro <slot>` | Print the macro parts for the quest in that slot |
 
 ## Notes
 
 - Objective parsing assumes the English client.
+- WoW Forever closes the combat log to addons (registering for it gets the addon blocked), so kills are detected with the `PARTY_KILL` / `UNIT_DIED` events instead. Those only give a GUID, so a kill only counts for a mob QuestTarget has seen: one you targeted, hovered, or that showed a nameplate.
+- Values the game marks as secret (some names/GUIDs, e.g. in dungeons) are ignored.

@@ -105,17 +105,18 @@ end
 
 -- returns angle (radians, counter-clockwise from north) and distance in yards
 local function NearestSpawnDirection()
-	if not UnitExists("target") or UnitIsDead("target") or UnitIsPlayer("target") then
+	local Plain = ns.Plain
+	if not UnitExists("target") or Plain(UnitIsDead("target")) or Plain(UnitIsPlayer("target")) then
 		return
 	end
 	if C_NamePlate and C_NamePlate.GetNamePlateForUnit("target") then
 		return -- its nameplate is on screen, no arrow needed
 	end
-	local name = UnitName("target")
+	local name = Plain(UnitName("target"))
 	if not (ns.questMobs and name and ns.questMobs[name]) then
 		return
 	end
-	local npcID = NpcIDFromGUID(UnitGUID("target"))
+	local npcID = NpcIDFromGUID(Plain(UnitGUID("target")))
 	local byMap = npcID and SpawnsByMap(npcID)
 	if not byMap then
 		return
